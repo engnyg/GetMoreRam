@@ -64,6 +64,7 @@ class LoginViewModel: ObservableObject {
         }
         
         AnisetteDataHelper.shared.loggingFunc = logging
+        logging(text: "StosSign patches: 2fa-409, iloader-headers")
 
         defer {
             verificationCodeHandler = nil
@@ -110,6 +111,9 @@ class LoginViewModel: ObservableObject {
                 throw CancellationError()
             }
             print(error)
+            if !(error is CancellationError) {
+                logging(text: "Sign in failed: \(error.detailedDescription)")
+            }
             throw error
         }
     }
