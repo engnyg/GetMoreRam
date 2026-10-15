@@ -30,32 +30,23 @@ final class AnisetteDataHelper
     
     static var shared: AnisetteDataHelper = AnisetteDataHelper()
     
-    // Client info / user agent can be customized from Settings (stored in UserDefaults via @AppStorage).
+    // Client info / user agent resolution order: custom value from Settings (UserDefaults via @AppStorage),
+    // then whatever the anisette server reports on /v3/client_info, then the defaults below.
     static let clientInfoDefaultsKey = "AnisetteClientInfo"
     static let userAgentDefaultsKey = "AnisetteUserAgent"
-    // Verified to sign in with the SideStore anisette server (macOS-style client info gets -22421 there).
+    // Same as what ani.jkcoxson.com / ani2.stikstore.app report. macOS-style client info gets -22421 with them.
     static let defaultClientInfo = "<PC> <Windows;6.2(0,0);9200> <com.apple.AuthKit/1 (com.apple.iTunes/12.12.4.1)>"
-    static let defaultUserAgent = "AuthKit/1 (Macintosh; OS X 27.0) (com.apple.akd/1.0)"
+    static let defaultUserAgent = "akd/1.0 CFNetwork/808.1.4"
     
     // adi.pb is bound to the client info it was provisioned with, remember which one that was.
     static let provisionedClientInfoDefaultsKey = "AnisetteProvisionedClientInfo"
+    // Stored for an imported adi.pb, whose client info is unknown: never reset it automatically.
+    static let provisionedClientInfoAnyValue = "*"
     private static let legacyProvisionedClientInfo = "<iMac18,3> <macOS;27.0;26A5378j> <com.apple.AuthKit/1 (com.apple.akd/1.0)>"
     
-    static func currentClientInfo() -> String {
-        customValue(forKey: clientInfoDefaultsKey, default: defaultClientInfo).value
-    }
-    
-    /// Records the client info currently in use as the one adi.pb belongs to (also used when importing an adi.pb).
-    static func markAdiPbProvisionedWithCurrentClientInfo() {
-        UserDefaults.standard.set(currentClientInfo(), forKey: provisionedClientInfoDefaultsKey)
-    }
-    
-    private static func customValue(forKey key: String, default defaultValue: String) -> (value: String, isCustom: Bool) {
+    private static func customValue(forKey key: String) -> String? {
         let custom = UserDefaults.standard.string(forKey: key)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let custom, !custom.isEmpty {
-            return (custom, true)
-        }
-        return (defaultValue, false)
+        return custom?.isEmpty == false ? custom : nil
     }
     
     var loggingFunc: ((String)->Void)?
@@ -76,8 +67,12 @@ final class AnisetteDataHelper
         
         self.printOut("Anisette URL: \(self.url!.absoluteString)")
         
+        await resolveClientInfo()
+        
         let provisionedClientInfo = UserDefaults.standard.string(forKey: Self.provisionedClientInfoDefaultsKey) ?? Self.legacyProvisionedClientInfo
-        if Keychain.shared.adiPb != nil, provisionedClientInfo != Self.currentClientInfo() {
+        if Keychain.shared.adiPb != nil,
+           provisionedClientInfo != Self.provisionedClientInfoAnyValue,
+           provisionedClientInfo != self.clientInfo {
             self.printOut("Client info changed since adi.pb was provisioned, resetting adi.pb to provision again")
             Keychain.shared.adiPb = nil
         }
@@ -277,7 +272,7 @@ final class AnisetteDataHelper
                 throw "The server didn't give us an adi.pb file"
             }
             Keychain.shared.adiPb = adiPb
-            Self.markAdiPbProvisionedWithCurrentClientInfo()
+            UserDefaults.standard.set(self.clientInfo, forKey: Self.provisionedClientInfoDefaultsKey)
             return true
             
         default:
@@ -370,16 +365,47 @@ final class AnisetteDataHelper
     
     // MARK: - V3: FETCHING
     
-    func fetchClientInfo() async throws {
-        // Always re-read so changes made in Settings take effect on the next request
-        let info = Self.customValue(forKey: Self.clientInfoDefaultsKey, default: Self.defaultClientInfo)
-        let agent = Self.customValue(forKey: Self.userAgentDefaultsKey, default: Self.defaultUserAgent)
-        self.clientInfo = info.value
-        self.userAgent = agent.value
+    /// Picks client info / user agent: custom (Settings) > anisette server > built-in default.
+    func resolveClientInfo() async {
+        let customClientInfo = Self.customValue(forKey: Self.clientInfoDefaultsKey)
+        let customUserAgent = Self.customValue(forKey: Self.userAgentDefaultsKey)
         
-        self.printOut(info.isCustom ? "Using custom client_info" : "Using default client_info")
-        self.printOut("Client-Info: \(self.clientInfo!)")
-        self.printOut("User-Agent: \(self.userAgent!)")
+        var serverInfo: (clientInfo: String, userAgent: String)?
+        if customClientInfo == nil || customUserAgent == nil {
+            serverInfo = await fetchServerClientInfo()
+        }
+        
+        self.clientInfo = customClientInfo ?? serverInfo?.clientInfo ?? Self.defaultClientInfo
+        self.userAgent = customUserAgent ?? serverInfo?.userAgent ?? Self.defaultUserAgent
+        
+        self.printOut("Client-Info (\(customClientInfo != nil ? "custom" : serverInfo != nil ? "server" : "default")): \(self.clientInfo!)")
+        self.printOut("User-Agent (\(customUserAgent != nil ? "custom" : serverInfo != nil ? "server" : "default")): \(self.userAgent!)")
+    }
+    
+    private func fetchServerClientInfo() async -> (clientInfo: String, userAgent: String)? {
+        guard let url = self.url else { return nil }
+        
+        let request = URLRequest(url: url.appendingPathComponent("v3").appendingPathComponent("client_info"), timeoutInterval: 10)
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard ((response as? HTTPURLResponse)?.statusCode ?? 200) == 200,
+                  let json = try JSONSerialization.jsonObject(with: data) as? [String: String],
+                  let clientInfo = json["client_info"], !clientInfo.isEmpty,
+                  let userAgent = json["user_agent"], !userAgent.isEmpty else {
+                self.printOut("Anisette server returned no usable client_info, using defaults")
+                return nil
+            }
+            return (clientInfo, userAgent)
+        } catch {
+            self.printOut("Couldn't fetch client_info from anisette server (\(error.localizedDescription)), using defaults")
+            return nil
+        }
+    }
+    
+    func fetchClientInfo() async throws {
+        if self.clientInfo == nil || self.userAgent == nil {
+            await resolveClientInfo()
+        }
         
         if  self.mdLu != nil &&
                 self.deviceId != nil &&

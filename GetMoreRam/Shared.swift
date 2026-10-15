@@ -84,12 +84,19 @@ extension String: @retroactive LocalizedError {
 
 class SharedModel: ObservableObject {
     @Published var isLogin = false
-    @AppStorage("AnisetteServer") var anisetteServerURL = "https://ani.sidestore.io"
+    static let defaultAnisetteServerURL = "https://ani.jkcoxson.com"
+    // Replaced by the Windows anisette servers (ani.jkcoxson.com, ani2.stikstore.app), same as iloader.
+    private static let retiredAnisetteServerURLs = ["https://ani.sidestore.io"]
+    
+    @AppStorage("AnisetteServer") var anisetteServerURL = SharedModel.defaultAnisetteServerURL
     var session: AppleAPISession?
     var account: Account?
     var team: Team?
     
     init() {
+        if Self.retiredAnisetteServerURLs.contains(anisetteServerURL) {
+            anisetteServerURL = Self.defaultAnisetteServerURL
+        }
         AnisetteDataHelper.shared.url = URL(string: anisetteServerURL)
     }
 }

@@ -77,6 +77,7 @@ class LoginViewModel: ObservableObject {
         }
 
         do {
+            AnisetteDataHelper.shared.url = URL(string: DataManager.shared.model.anisetteServerURL.trimmingCharacters(in: .whitespacesAndNewlines))
             let anisetteData = try await AnisetteDataHelper.shared.getAnisetteData()
 
             let (account, session) = try await AppleAPI.shared.authenticate(appleID: appleID, password: password, anisetteData: anisetteData) { [weak self] completionHandler in

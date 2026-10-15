@@ -23,8 +23,8 @@ struct SettingsView: View {
     @State private var importResultShow = false
     @State private var importResultInfo = ""
     @State private var isImportingSideStoreAccount = false
-    @AppStorage(AnisetteDataHelper.clientInfoDefaultsKey) private var clientInfo = AnisetteDataHelper.defaultClientInfo
-    @AppStorage(AnisetteDataHelper.userAgentDefaultsKey) private var userAgent = AnisetteDataHelper.defaultUserAgent
+    @AppStorage(AnisetteDataHelper.clientInfoDefaultsKey) private var clientInfo = ""
+    @AppStorage(AnisetteDataHelper.userAgentDefaultsKey) private var userAgent = ""
     
 
     var body: some View {
@@ -62,19 +62,21 @@ struct SettingsView: View {
                     TextField("", text: $sharedModel.anisetteServerURL)
                         .multilineTextAlignment(.trailing)
                 }
+            } footer: {
+                Text("Default: https://ani.jkcoxson.com. Backup: https://ani2.stikstore.app")
             }
             
             Section {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Client Info")
-                    TextField(AnisetteDataHelper.defaultClientInfo, text: $clientInfo, axis: .vertical)
+                    TextField("Use the server's", text: $clientInfo, axis: .vertical)
                         .font(.system(.footnote, design: .monospaced))
                         .autocapitalization(.none)
                         .disableAutocorrection(true)
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     Text("User Agent")
-                    TextField(AnisetteDataHelper.defaultUserAgent, text: $userAgent, axis: .vertical)
+                    TextField("Use the server's", text: $userAgent, axis: .vertical)
                         .font(.system(.footnote, design: .monospaced))
                         .autocapitalization(.none)
                         .disableAutocorrection(true)
@@ -83,11 +85,11 @@ struct SettingsView: View {
                     UserDefaults.standard.removeObject(forKey: AnisetteDataHelper.clientInfoDefaultsKey)
                     UserDefaults.standard.removeObject(forKey: AnisetteDataHelper.userAgentDefaultsKey)
                 }
-                .disabled(clientInfo == AnisetteDataHelper.defaultClientInfo && userAgent == AnisetteDataHelper.defaultUserAgent)
+                .disabled(clientInfo.isEmpty && userAgent.isEmpty)
             } header: {
                 Text("Anisette Client")
             } footer: {
-                Text("Sent to Apple as X-Mme-Client-Info and User-Agent when signing in. Leave empty to use the default. Takes effect on the next sign in.")
+                Text("Sent to Apple as X-Mme-Client-Info and User-Agent when signing in. Leave empty to use the ones reported by the Anisette server. Takes effect on the next sign in.")
             }
             
             Section {
