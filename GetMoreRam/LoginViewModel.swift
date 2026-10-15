@@ -114,6 +114,10 @@ class LoginViewModel: ObservableObject {
             if !(error is CancellationError) {
                 logging(text: "Sign in failed: \(error.detailedDescription)")
             }
+            if case AppleAPIError.invalidAnisetteData = error {
+                // Apple rejected our anisette, provision it again (with a new identifier) on the next try
+                AnisetteDataHelper.shared.resetAnisetteState()
+            }
             throw error
         }
     }

@@ -45,6 +45,8 @@ final class AnisetteDataHelper
     static let provisionedClientInfoDefaultsKey = "AnisetteProvisionedClientInfo"
     // Stored for an imported adi.pb, whose client info is unknown: never reset it automatically.
     static let provisionedClientInfoAnyValue = "*"
+    // Bump the suffix when the provisioning identity (not just the client info) changes
+    static func provisionedMarker(for clientInfo: String?) -> String { "\(clientInfo ?? "") #v2" }
     private static let legacyProvisionedClientInfo = "<iMac18,3> <macOS;27.0;26A5378j> <com.apple.AuthKit/1 (com.apple.akd/1.0)>"
     
     private static func customValue(forKey key: String) -> String? {
@@ -84,7 +86,7 @@ final class AnisetteDataHelper
         let provisionedClientInfo = UserDefaults.standard.string(forKey: Self.provisionedClientInfoDefaultsKey) ?? Self.legacyProvisionedClientInfo
         if Keychain.shared.adiPb != nil,
            provisionedClientInfo != Self.provisionedClientInfoAnyValue,
-           provisionedClientInfo != self.clientInfo {
+           provisionedClientInfo != Self.provisionedMarker(for: self.clientInfo) {
             self.printOut("Client info changed since adi.pb was provisioned, resetting anisette state to provision again")
             resetAnisetteState()
         }
@@ -295,7 +297,7 @@ final class AnisetteDataHelper
                 throw "The server didn't give us an adi.pb file"
             }
             Keychain.shared.adiPb = adiPb
-            UserDefaults.standard.set(self.clientInfo, forKey: Self.provisionedClientInfoDefaultsKey)
+            UserDefaults.standard.set(Self.provisionedMarker(for: self.clientInfo), forKey: Self.provisionedClientInfoDefaultsKey)
             return true
             
         default:
@@ -446,10 +448,11 @@ final class AnisetteDataHelper
         }
         
         let decoded = Data(base64Encoded: Keychain.shared.identifier!)!
-        self.mdLu = decoded.sha256().hexEncodedString()
+        // Lowercase like isideload, which signs in fine with the same servers
+        self.mdLu = decoded.sha256().hexEncodedString().lowercased()
         self.printOut("X-Apple-I-MD-LU: \(self.mdLu!)")
         let uuid: UUID = decoded.object()
-        self.deviceId = uuid.uuidString.uppercased()
+        self.deviceId = uuid.uuidString.lowercased()
         self.printOut("X-Mme-Device-Id: \(self.deviceId!)")
 
         // Client info on Anisette Servers are out of date for latest GSA
