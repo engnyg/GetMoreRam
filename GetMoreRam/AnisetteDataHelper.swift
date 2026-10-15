@@ -38,6 +38,9 @@ final class AnisetteDataHelper
     static let defaultClientInfo = "<PC> <Windows;6.2(0,0);9200> <com.apple.AuthKit/1 (com.apple.iTunes/12.12.4.1)>"
     static let defaultUserAgent = "akd/1.0 CFNetwork/808.1.4"
     
+    static let urlBagClientInfo = "<Mac15,7> <macOS;27.0;26A5378j> <com.apple.AuthKit/1 (com.apple.akd/1.0)>"
+    static let xcodeVersion = "27.0 (27A5218g)"
+    
     // adi.pb is bound to the client info it was provisioned with, remember which one that was.
     static let provisionedClientInfoDefaultsKey = "AnisetteProvisionedClientInfo"
     // Stored for an imported adi.pb, whose client info is unknown: never reset it automatically.
@@ -174,7 +177,10 @@ final class AnisetteDataHelper
     func provision() async throws -> AnisetteData {
         try await fetchClientInfo()
             self.printOut("Getting provisioning URLs")
-            var request = self.buildAppleRequest(url: URL(string: "https://gsa.apple.com/grandslam/GsService2/lookup")!)
+            // Like isideload: a non-Mac client info gets us the wrong URL bag, so lie for this request
+            var request = self.buildAppleRequest(url: URL(string: "https://gsa.apple.com/grandslam/GsService2/lookup")!,
+                                                 clientInfo: Self.urlBagClientInfo,
+                                                 includeDeviceHeaders: false)
             request.httpMethod = "GET"
         let (data, response) = try await URLSession.shared.data(for: request)
         if
@@ -341,25 +347,21 @@ final class AnisetteDataHelper
         return components.url ?? url
     }
     
-    func buildAppleRequest(url: URL) -> URLRequest {
+    /// Headers mirror isideload's GrandSlam provisioning requests (no client time / locale / time zone).
+    func buildAppleRequest(url: URL, clientInfo: String? = nil, includeDeviceHeaders: Bool = true) -> URLRequest {
         var request = URLRequest(url: url)
-        request.setValue(self.clientInfo!, forHTTPHeaderField: "X-Mme-Client-Info")
+        request.setValue(clientInfo ?? self.clientInfo!, forHTTPHeaderField: "X-Mme-Client-Info")
         request.setValue(self.userAgent!, forHTTPHeaderField: "User-Agent")
         request.setValue("text/x-xml-plist", forHTTPHeaderField: "Content-Type")
-        request.setValue("*/*", forHTTPHeaderField: "Accept")
-
-        request.setValue(self.mdLu!, forHTTPHeaderField: "X-Apple-I-MD-LU")
-        request.setValue(self.deviceId!, forHTTPHeaderField: "X-Mme-Device-Id")
-
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.timeZone = TimeZone(identifier: "UTC")
-        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss'Z'"
-        let dateString = formatter.string(from: Date())
-        request.setValue(dateString, forHTTPHeaderField: "X-Apple-I-Client-Time")
-        request.setValue(Locale.current.identifier, forHTTPHeaderField: "X-Apple-Locale")
-        request.setValue(TimeZone.current.abbreviation(), forHTTPHeaderField: "X-Apple-I-TimeZone")
+        request.setValue("text/x-xml-plist", forHTTPHeaderField: "Accept")
+        request.setValue(Self.xcodeVersion, forHTTPHeaderField: "X-Xcode-Version")
+        request.setValue("com.apple.gs.xcode.auth", forHTTPHeaderField: "X-Apple-App-Info")
+        request.setValue("close", forHTTPHeaderField: "Connection")
+        
+        if includeDeviceHeaders {
+            request.setValue(self.mdLu!, forHTTPHeaderField: "X-Apple-I-MD-LU")
+            request.setValue(self.deviceId!, forHTTPHeaderField: "X-Mme-Device-Id")
+        }
         return request
     }
     
