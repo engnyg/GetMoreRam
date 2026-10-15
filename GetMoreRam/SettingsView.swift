@@ -23,6 +23,8 @@ struct SettingsView: View {
     @State private var importResultShow = false
     @State private var importResultInfo = ""
     @State private var isImportingSideStoreAccount = false
+    @AppStorage(AnisetteDataHelper.clientInfoDefaultsKey) private var clientInfo = AnisetteDataHelper.defaultClientInfo
+    @AppStorage(AnisetteDataHelper.userAgentDefaultsKey) private var userAgent = AnisetteDataHelper.defaultUserAgent
     
 
     var body: some View {
@@ -60,6 +62,32 @@ struct SettingsView: View {
                     TextField("", text: $sharedModel.anisetteServerURL)
                         .multilineTextAlignment(.trailing)
                 }
+            }
+            
+            Section {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Client Info")
+                    TextField(AnisetteDataHelper.defaultClientInfo, text: $clientInfo, axis: .vertical)
+                        .font(.system(.footnote, design: .monospaced))
+                        .autocapitalization(.none)
+                        .disableAutocorrection(true)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("User Agent")
+                    TextField(AnisetteDataHelper.defaultUserAgent, text: $userAgent, axis: .vertical)
+                        .font(.system(.footnote, design: .monospaced))
+                        .autocapitalization(.none)
+                        .disableAutocorrection(true)
+                }
+                Button("Reset to Default") {
+                    UserDefaults.standard.removeObject(forKey: AnisetteDataHelper.clientInfoDefaultsKey)
+                    UserDefaults.standard.removeObject(forKey: AnisetteDataHelper.userAgentDefaultsKey)
+                }
+                .disabled(clientInfo == AnisetteDataHelper.defaultClientInfo && userAgent == AnisetteDataHelper.defaultUserAgent)
+            } header: {
+                Text("Anisette Client")
+            } footer: {
+                Text("Sent to Apple as X-Mme-Client-Info and User-Agent when signing in. Leave empty to use the default. Takes effect on the next sign in.")
             }
             
             Section {

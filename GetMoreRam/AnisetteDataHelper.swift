@@ -30,6 +30,20 @@ final class AnisetteDataHelper
     
     static var shared: AnisetteDataHelper = AnisetteDataHelper()
     
+    // Client info / user agent can be customized from Settings (stored in UserDefaults via @AppStorage).
+    static let clientInfoDefaultsKey = "AnisetteClientInfo"
+    static let userAgentDefaultsKey = "AnisetteUserAgent"
+    static let defaultClientInfo = "<PC> <Windows;6.2(0,0);9200> <com.apple.AuthKit/1 (com.apple.iTunes/12.12.4.1)>"
+    static let defaultUserAgent = "AuthKit/1 (Macintosh; OS X 27.0) (com.apple.akd/1.0)"
+    
+    private static func customValue(forKey key: String, default defaultValue: String) -> (value: String, isCustom: Bool) {
+        let custom = UserDefaults.standard.string(forKey: key)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let custom, !custom.isEmpty {
+            return (custom, true)
+        }
+        return (defaultValue, false)
+    }
+    
     var loggingFunc: ((String)->Void)?
     
     func resetClientInfo() {
@@ -336,21 +350,21 @@ final class AnisetteDataHelper
     // MARK: - V3: FETCHING
     
     func fetchClientInfo() async throws {
-        if  self.clientInfo != nil &&
-                self.userAgent != nil &&
-                self.mdLu != nil &&
-                self.deviceId != nil &&
-                Keychain.shared.identifier != nil {
-            self.printOut("Skipping client_info fetch since all the properties we need aren't nil")
-            return
-        }
+        // Always re-read so changes made in Settings take effect on the next request
+        let info = Self.customValue(forKey: Self.clientInfoDefaultsKey, default: Self.defaultClientInfo)
+        let agent = Self.customValue(forKey: Self.userAgentDefaultsKey, default: Self.defaultUserAgent)
+        self.clientInfo = info.value
+        self.userAgent = agent.value
         
-        self.printOut("Using custom client_info")
-                        
-        self.clientInfo = "<iMac18,3> <macOS;27.0;26A5378j> <com.apple.AuthKit/1 (com.apple.akd/1.0)>"
-        self.userAgent = "AuthKit/1 (Macintosh; OS X 27.0) (com.apple.akd/1.0)"
+        self.printOut(info.isCustom ? "Using custom client_info" : "Using default client_info")
         self.printOut("Client-Info: \(self.clientInfo!)")
         self.printOut("User-Agent: \(self.userAgent!)")
+        
+        if  self.mdLu != nil &&
+                self.deviceId != nil &&
+                Keychain.shared.identifier != nil {
+            return
+        }
         
         if Keychain.shared.identifier == nil {
             self.printOut("Generating identifier")
