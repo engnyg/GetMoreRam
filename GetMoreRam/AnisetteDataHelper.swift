@@ -36,6 +36,19 @@ final class AnisetteDataHelper
     static let defaultClientInfo = "<PC> <Windows;6.2(0,0);9200> <com.apple.AuthKit/1 (com.apple.iTunes/12.12.4.1)>"
     static let defaultUserAgent = "AuthKit/1 (Macintosh; OS X 27.0) (com.apple.akd/1.0)"
     
+    // adi.pb is bound to the client info it was provisioned with, remember which one that was.
+    static let provisionedClientInfoDefaultsKey = "AnisetteProvisionedClientInfo"
+    private static let legacyProvisionedClientInfo = "<iMac18,3> <macOS;27.0;26A5378j> <com.apple.AuthKit/1 (com.apple.akd/1.0)>"
+    
+    static func currentClientInfo() -> String {
+        customValue(forKey: clientInfoDefaultsKey, default: defaultClientInfo).value
+    }
+    
+    /// Records the client info currently in use as the one adi.pb belongs to (also used when importing an adi.pb).
+    static func markAdiPbProvisionedWithCurrentClientInfo() {
+        UserDefaults.standard.set(currentClientInfo(), forKey: provisionedClientInfoDefaultsKey)
+    }
+    
     private static func customValue(forKey key: String, default defaultValue: String) -> (value: String, isCustom: Bool) {
         let custom = UserDefaults.standard.string(forKey: key)?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let custom, !custom.isEmpty {
@@ -61,6 +74,12 @@ final class AnisetteDataHelper
         }
         
         self.printOut("Anisette URL: \(self.url!.absoluteString)")
+        
+        let provisionedClientInfo = UserDefaults.standard.string(forKey: Self.provisionedClientInfoDefaultsKey) ?? Self.legacyProvisionedClientInfo
+        if Keychain.shared.adiPb != nil, provisionedClientInfo != Self.currentClientInfo() {
+            self.printOut("Client info changed since adi.pb was provisioned, resetting adi.pb to provision again")
+            Keychain.shared.adiPb = nil
+        }
         
         let ans : AnisetteData
         if let identifier = Keychain.shared.identifier,
@@ -257,6 +276,7 @@ final class AnisetteDataHelper
                 throw "The server didn't give us an adi.pb file"
             }
             Keychain.shared.adiPb = adiPb
+            Self.markAdiPbProvisionedWithCurrentClientInfo()
             return true
             
         default:
