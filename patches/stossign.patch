@@ -1,8 +1,36 @@
 diff --git a/Sources/StosSign_API/AppleAPI.swift b/Sources/StosSign_API/AppleAPI.swift
-index 358d73c..e254f96 100755
+index 358d73c..8be84ab 100755
 --- a/Sources/StosSign_API/AppleAPI.swift
 +++ b/Sources/StosSign_API/AppleAPI.swift
-@@ -561,13 +561,8 @@ public final class AppleAPI: Sendable {
+@@ -16,6 +16,11 @@ let QH_Protocol = "QH65B2"
+ let V1_Protocol = "v1"
+ let authProtocol = "A1234"
+ 
++/// The last response of `updateAppID`, `updateAppID` itself only returns the app ID it was given.
++public enum AppleAPIDebug {
++    public static var lastServerResponse: String?
++}
++
+ public final class AppleAPI: Sendable {
+     public let session = URLSession(configuration: URLSessionConfiguration.ephemeral)
+     public let qhURL = URL(string: "https://developerservices2.apple.com/services/\(QH_Protocol)/")!
+@@ -306,6 +311,15 @@ public final class AppleAPI: Sendable {
+         
+         print("Server Response: \(response)")
+         
++        // Keep the response (pretty printed JSON) so apps can show what the server answered
++        if JSONSerialization.isValidJSONObject(response),
++           let data = try? JSONSerialization.data(withJSONObject: response, options: [.prettyPrinted]),
++           let text = String(data: data, encoding: .utf8) {
++            AppleAPIDebug.lastServerResponse = text
++        } else {
++            AppleAPIDebug.lastServerResponse = "\(response)"
++        }
++        
+         guard let _ = response["data"] as? [String: Any] else {
+             if let data = response["error"] as? String {
+                 throw AppleAPIError.customError(code: 0, message: data)
+@@ -561,13 +575,8 @@ public final class AppleAPI: Sendable {
              "X-Apple-GS-Token": session.authToken,
              "X-Apple-I-MD-M": session.anisetteData.machineID,
              "X-Apple-I-MD": session.anisetteData.oneTimePassword,
@@ -16,7 +44,7 @@ index 358d73c..e254f96 100755
          ]
          
          httpHeaders.forEach { key, value in
-@@ -616,14 +611,8 @@ public final class AppleAPI: Sendable {
+@@ -616,14 +625,8 @@ public final class AppleAPI: Sendable {
              "X-Apple-GS-Token": session.authToken,
              "X-Apple-I-MD-M": session.anisetteData.machineID,
              "X-Apple-I-MD": session.anisetteData.oneTimePassword,
@@ -31,7 +59,7 @@ index 358d73c..e254f96 100755
          ]
          
          for (key, value) in httpHeaders {
-@@ -686,14 +675,8 @@ public final class AppleAPI: Sendable {
+@@ -686,14 +689,8 @@ public final class AppleAPI: Sendable {
              "X-Apple-GS-Token": session.authToken,
              "X-Apple-I-MD-M": session.anisetteData.machineID,
              "X-Apple-I-MD": session.anisetteData.oneTimePassword,

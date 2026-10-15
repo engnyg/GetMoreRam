@@ -33,9 +33,11 @@ class AppIDModel : ObservableObject, Hashable {
         }
 
         await DataManager.shared.model.refreshSessionAnisette()
+        AppleAPIDebug.lastServerResponse = nil
         let cool = try await AppleAPI.shared.updateAppID(appID, capabilities: ["INCREASED_MEMORY_LIMIT"], team: team, session: session)
         
-        result = "\(cool)"
+        // updateAppID returns the app ID it was given, the server's answer is what tells whether the capability was added
+        result = AppleAPIDebug.lastServerResponse ?? "\(cool)"
     }
     
 }
