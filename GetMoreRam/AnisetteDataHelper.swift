@@ -54,6 +54,15 @@ final class AnisetteDataHelper
     
     var loggingFunc: ((String)->Void)?
     
+    /// Like isideload's forced reset: drop adi.pb and use a brand new device identifier, re-provisioning
+    /// an identifier Apple has already seen fail can be rejected (-29002).
+    func resetAnisetteState() {
+        Keychain.shared.adiPb = nil
+        Keychain.shared.identifier = nil
+        mdLu = nil
+        deviceId = nil
+    }
+    
     func resetClientInfo() {
         clientInfo = nil
         userAgent = nil
@@ -76,8 +85,8 @@ final class AnisetteDataHelper
         if Keychain.shared.adiPb != nil,
            provisionedClientInfo != Self.provisionedClientInfoAnyValue,
            provisionedClientInfo != self.clientInfo {
-            self.printOut("Client info changed since adi.pb was provisioned, resetting adi.pb to provision again")
-            Keychain.shared.adiPb = nil
+            self.printOut("Client info changed since adi.pb was provisioned, resetting anisette state to provision again")
+            resetAnisetteState()
         }
         
         let ans : AnisetteData
@@ -85,7 +94,14 @@ final class AnisetteDataHelper
            let adiPb = Keychain.shared.adiPb {
             ans = try await self.fetchAnisetteV3(identifier, adiPb)
         } else {
-            ans = try await self.provision()
+            do {
+                ans = try await self.provision()
+            } catch {
+                // Don't keep retrying with an identifier Apple just refused to provision
+                self.printOut("Provisioning failed, using a new device identifier next time")
+                resetAnisetteState()
+                throw error
+            }
         }
         return ans
     }
@@ -102,8 +118,8 @@ final class AnisetteDataHelper
                     self.printOut("Error getting V3 headers: \(message ?? "no message")")
                     if let message = message,
                        message.contains("-45061") {
-                        self.printOut("Error message contains -45061 (not provisioned), resetting adi.pb and retrying")
-                        Keychain.shared.adiPb = nil
+                        self.printOut("Error message contains -45061 (not provisioned), resetting anisette state and retrying")
+                        resetAnisetteState()
                         return try await provision()
                     } else { throw message ?? "Unknown error" }
                 }
