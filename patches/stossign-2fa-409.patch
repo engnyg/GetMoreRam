@@ -1,0 +1,52 @@
+diff --git a/Sources/StosSign_Auth/Authentication.swift b/Sources/StosSign_Auth/Authentication.swift
+index cb2cd93..099a61c 100755
+--- a/Sources/StosSign_Auth/Authentication.swift
++++ b/Sources/StosSign_Auth/Authentication.swift
+@@ -15,6 +15,13 @@ import FoundationNetworking
+ public typealias AppleAPISession = StosSign_API.AppleAPISession
+ public typealias AppleAPIError = StosSign_API.AppleAPIError
+ 
++// Apple may now answer with `hsc == 409` (and no `au`) when it has already pushed
++// a verification code to the user's trusted devices. Mirrors SideSign's fix so
++// that we prompt for the code once and never loop if Apple keeps answering 409.
++private enum PushedCodeState {
++    @TaskLocal static var handled = false
++}
++
+ public final class Authentication {
+     public init() { }
+     
+@@ -125,8 +132,32 @@ public final class Authentication {
+         
+         context.dsid = dsid
+         
+-        let authType = statusDictionary["au"] as? String
++        let authType = (statusDictionary["au"] as? String)
++            ?? ((statusDictionary["hsc"] as? Int) == 409 ? "pushedCode" : nil)
+         switch authType {
++        case "pushedCode":
++            guard let verificationHandler = verificationHandler,
++                  !PushedCodeState.handled
++            else {
++                throw AppleAPIError.requiresTwoFactorAuthentication
++            }
++            
++            try await requestTrustedDeviceTwoFactorCode(
++                dsid: dsid,
++                idmsToken: idmsToken,
++                anisetteData: anisetteData,
++                verificationHandler: verificationHandler
++            )
++            
++            return try await PushedCodeState.$handled.withValue(true) {
++                try await authenticate(
++                    appleID: unsanitizedAppleID,
++                    password: password,
++                    anisetteData: anisetteData,
++                    verificationHandler: verificationHandler
++                )
++            }
++            
+         case "trustedDeviceSecondaryAuth":
+             guard let verificationHandler = verificationHandler else {
+                 throw AppleAPIError.requiresTwoFactorAuthentication

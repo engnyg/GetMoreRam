@@ -52,24 +52,34 @@ jobs:
           file_to_build=`ls -A | grep -i \\.xcworkspace\$ || ls -A | grep -i \\.xcodeproj\$`
           file_to_build=`echo $file_to_build | awk '{$1=$1;print}'`
           echo "file_to_build=$file_to_build" >> $GITHUB_OUTPUT
+      - name: Resolve and patch Swift packages
+        env:
+          scheme: ${{ steps.scheme.outputs.scheme }}
+          filetype_parameter: ${{ steps.filetype_parameter.outputs.filetype_parameter }}
+          file_to_build: ${{ steps.file_to_build.outputs.file_to_build }}
+        run: |
+          xcodebuild -resolvePackageDependencies -scheme "$scheme" -"$filetype_parameter" "$file_to_build" -clonedSourcePackagesDirPath SourcePackages
+          # SideStore/SideSign "fix: 2FA failing": Apple now answers hsc=409 for pushed 2FA codes, which StosSign doesn't handle yet.
+          # Fails the build if the patch no longer applies (e.g. StosSign already fixed it upstream) so it gets noticed.
+          patch -p1 -d SourcePackages/checkouts/StosSign < patches/stossign-2fa-409.patch
       - name: Build
         env:
           scheme: ${{ steps.scheme.outputs.scheme }}
           filetype_parameter: ${{ steps.filetype_parameter.outputs.filetype_parameter }}
           file_to_build: ${{ steps.file_to_build.outputs.file_to_build }}
-        run: xcodebuild clean build -scheme "$scheme" -"$filetype_parameter" "$file_to_build" -sdk iphoneos -arch arm64 -configuration Release CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO | xcpretty && exit ${PIPESTATUS[0]}
+        run: xcodebuild clean build -clonedSourcePackagesDirPath SourcePackages -disableAutomaticPackageResolution -scheme "$scheme" -"$filetype_parameter" "$file_to_build" -sdk iphoneos -arch arm64 -configuration Release CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO | xcpretty && exit ${PIPESTATUS[0]}
       - name: Analyze
         env:
           scheme: ${{ steps.scheme.outputs.scheme }}
           filetype_parameter: ${{ steps.filetype_parameter.outputs.filetype_parameter }}
           file_to_build: ${{ steps.file_to_build.outputs.file_to_build }}
-        run: xcodebuild analyze -scheme "$scheme" -"$filetype_parameter" "$file_to_build" -sdk iphoneos -arch arm64 -configuration Release CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO | xcpretty && exit ${PIPESTATUS[0]}
+        run: xcodebuild analyze -clonedSourcePackagesDirPath SourcePackages -disableAutomaticPackageResolution -scheme "$scheme" -"$filetype_parameter" "$file_to_build" -sdk iphoneos -arch arm64 -configuration Release CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO | xcpretty && exit ${PIPESTATUS[0]}
       - name: Archive
         env:
           scheme: ${{ steps.scheme.outputs.scheme }}
           filetype_parameter: ${{ steps.filetype_parameter.outputs.filetype_parameter }}
           file_to_build: ${{ steps.file_to_build.outputs.file_to_build }}
-        run: xcodebuild archive -archivePath "$archive_path" -scheme "$scheme" -"$filetype_parameter" "$file_to_build" -sdk iphoneos -arch arm64 -configuration Release CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO | xcpretty && exit ${PIPESTATUS[0]}
+        run: xcodebuild archive -archivePath "$archive_path" -clonedSourcePackagesDirPath SourcePackages -disableAutomaticPackageResolution -scheme "$scheme" -"$filetype_parameter" "$file_to_build" -sdk iphoneos -arch arm64 -configuration Release CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO | xcpretty && exit ${PIPESTATUS[0]}
       - name: Tar Build Artifact
         run: tar -cvf "$archive_path.xcarchive.tar" "$archive_path.xcarchive"
       - name: Upload a Build Artifact
