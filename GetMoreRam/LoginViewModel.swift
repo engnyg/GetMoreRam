@@ -64,7 +64,7 @@ class LoginViewModel: ObservableObject {
         }
         
         AnisetteDataHelper.shared.loggingFunc = logging
-        logging(text: "StosSign patches: 2fa-409, iloader-headers")
+        logging(text: "StosSign patches: 2fa-409, iloader-headers, anisette-resync")
 
         defer {
             verificationCodeHandler = nil
@@ -79,15 +79,35 @@ class LoginViewModel: ObservableObject {
 
         do {
             AnisetteDataHelper.shared.url = URL(string: DataManager.shared.model.anisetteServerURL.trimmingCharacters(in: .whitespacesAndNewlines))
-            let anisetteData = try await AnisetteDataHelper.shared.getAnisetteData()
+            var anisetteData = try await AnisetteDataHelper.shared.getAnisetteData()
 
-            let (account, session) = try await AppleAPI.shared.authenticate(appleID: appleID, password: password, anisetteData: anisetteData) { [weak self] completionHandler in
-                guard let self else {
-                    completionHandler(nil)
-                    return
+            // Anisette one time passwords expire quickly, so the 2FA steps ask for fresh data
+            Authentication.anisetteProvider = { try await AnisetteDataHelper.shared.getAnisetteData() }
+
+            var resyncCount = 0
+            var authResult: (Account, AppleAPISession)?
+            while authResult == nil {
+                do {
+                    authResult = try await AppleAPI.shared.authenticate(appleID: appleID, password: password, anisetteData: anisetteData) { [weak self] completionHandler in
+                        guard let self else {
+                            completionHandler(nil)
+                            return
+                        }
+
+                        self.prepareForVerification(using: completionHandler)
+                    }
+                } catch {
+                    // Apple answers hsc 434 when the anisette needs to be resynced, then the sign in has to be retried
+                    guard resyncCount < 2, let sim = Self.anisetteResyncSIM(from: error) else {
+                        throw error
+                    }
+                    resyncCount += 1
+                    logging(text: "Apple asked to resync the anisette, retrying")
+                    anisetteData = try await AnisetteDataHelper.shared.resyncAnisetteData(sim: sim)
                 }
-
-                self.prepareForVerification(using: completionHandler)
+            }
+            guard let (account, session) = authResult else {
+                throw AppleAPIError.unknown
             }
 
             guard !isAuthenticationCancellationRequested else {
@@ -122,6 +142,16 @@ class LoginViewModel: ObservableObject {
         }
     }
 
+    private static let anisetteResyncPrefix = "anisette-resync:"
+
+    /// The SIM from the hsc 434 error that the patched StosSign throws (see patches/stossign.patch)
+    private static func anisetteResyncSIM(from error: Error) -> String? {
+        guard case AppleAPIError.customError(let code, let message) = error,
+              code == 434,
+              message.hasPrefix(anisetteResyncPrefix) else { return nil }
+        return String(message.dropFirst(anisetteResyncPrefix.count))
+    }
+
     private func prepareForVerification(using handler: @escaping (String?) -> Void) {
         guard !isAuthenticationCancellationRequested else {
             handler(nil)
@@ -137,6 +167,7 @@ class LoginViewModel: ObservableObject {
     func fetchTeams(for account: Account, session: AppleAPISession) async throws -> [Team]
     {
 
+        await DataManager.shared.model.refreshSessionAnisette()
         let fetchedTeams = try await AppleAPI.shared.fetchTeamsForAccount(account: account, session: session)
         guard !fetchedTeams.isEmpty else {
             throw "Unable to Fetch Team!"

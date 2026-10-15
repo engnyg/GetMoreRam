@@ -32,6 +32,7 @@ class AppIDModel : ObservableObject, Hashable {
             throw "Please Login First"
         }
 
+        await DataManager.shared.model.refreshSessionAnisette()
         let cool = try await AppleAPI.shared.updateAppID(appID, capabilities: ["INCREASED_MEMORY_LIMIT"], team: team, session: session)
         
         result = "\(cool)"
@@ -47,6 +48,7 @@ class AppIDViewModel : ObservableObject {
             throw "Please Login First"
         }
         
+        await DataManager.shared.model.refreshSessionAnisette()
         let ids = try await AppleAPI.shared.fetchAppIDsForTeam(team: team, session: session)
         await MainActor.run {
             appIDs.removeAll()

@@ -500,16 +500,32 @@ final class AnisetteDataHelper
         */
     }
     
-    func fetchAnisetteV3(_ identifier: String, _ adiPb: String) async throws -> AnisetteData {
+    /// Apple answered a sign in with hsc 434: ask the anisette server for headers resynced with Apple's SIM
+    /// (same request as isideload's `resync`).
+    func resyncAnisetteData(sim: String) async throws -> AnisetteData {
+        guard let identifier = Keychain.shared.identifier, let adiPb = Keychain.shared.adiPb else {
+            throw "Anisette is not provisioned, can't resync"
+        }
+        self.printOut("Resyncing anisette")
+        return try await fetchAnisetteV3(identifier, adiPb, sim: sim)
+    }
+    
+    func fetchAnisetteV3(_ identifier: String, _ adiPb: String, sim: String? = nil) async throws -> AnisetteData {
         try await fetchClientInfo()
         self.printOut("Fetching anisette V3")
         let url = menuAnisetteURL
         var request = URLRequest(url: self.url!.appendingPathComponent("v3").appendingPathComponent("get_headers"))
         request.httpMethod = "POST"
-        request.httpBody = try! JSONSerialization.data(withJSONObject: [
+        var body: [String: String] = [
             "identifier": identifier,
             "adi_pb": adiPb
-        ], options: [])
+        ]
+        if let sim {
+            body["sim"] = sim
+            body["device_id"] = self.deviceId!
+            body["md_lu"] = self.mdLu!
+        }
+        request.httpBody = try! JSONSerialization.data(withJSONObject: body, options: [])
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let (data, response) = try await URLSession.shared.data(for: request)
         

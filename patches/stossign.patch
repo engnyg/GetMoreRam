@@ -47,10 +47,10 @@ index 358d73c..e254f96 100755
          
          for (key, value) in httpHeaders {
 diff --git a/Sources/StosSign_Auth/Authentication.swift b/Sources/StosSign_Auth/Authentication.swift
-index cb2cd93..9e5da9b 100755
+index cb2cd93..a4a366c 100755
 --- a/Sources/StosSign_Auth/Authentication.swift
 +++ b/Sources/StosSign_Auth/Authentication.swift
-@@ -15,6 +15,13 @@ import FoundationNetworking
+@@ -15,9 +15,25 @@ import FoundationNetworking
  public typealias AppleAPISession = StosSign_API.AppleAPISession
  public typealias AppleAPIError = StosSign_API.AppleAPIError
  
@@ -64,7 +64,19 @@ index cb2cd93..9e5da9b 100755
  public final class Authentication {
      public init() { }
      
-@@ -34,16 +41,10 @@ public final class Authentication {
++    /// Returns fresh anisette data. Anisette one time passwords expire after about a minute, so the data is
++    /// refreshed before the 2FA code is validated and before signing in again, like isideload does.
++    public static var anisetteProvider: (() async throws -> AnisetteData)?
++    
++    private static func freshAnisette(_ current: AnisetteData) async -> AnisetteData {
++        guard let anisetteProvider else { return current }
++        return (try? await anisetteProvider()) ?? current
++    }
++    
+     public static let dateFormatter = ISO8601DateFormatter()
+     
+     public static func authenticate(
+@@ -34,16 +50,10 @@ public final class Authentication {
              "pbe": false,
              "prkgen": true,
              "svct": "iCloud",
@@ -82,7 +94,7 @@ index cb2cd93..9e5da9b 100755
          ]
          
          let context = GSAContext(username: sanitizedAppleID, password: password)
-@@ -125,8 +126,32 @@ public final class Authentication {
+@@ -125,8 +135,32 @@ public final class Authentication {
          
          context.dsid = dsid
          
@@ -108,7 +120,7 @@ index cb2cd93..9e5da9b 100755
 +                try await authenticate(
 +                    appleID: unsanitizedAppleID,
 +                    password: password,
-+                    anisetteData: anisetteData,
++                    anisetteData: await freshAnisette(anisetteData),
 +                    verificationHandler: verificationHandler
 +                )
 +            }
@@ -116,7 +128,25 @@ index cb2cd93..9e5da9b 100755
          case "trustedDeviceSecondaryAuth":
              guard let verificationHandler = verificationHandler else {
                  throw AppleAPIError.requiresTwoFactorAuthentication
-@@ -245,8 +270,10 @@ public final class Authentication {
+@@ -142,7 +176,7 @@ public final class Authentication {
+             return try await authenticate(
+                 appleID: unsanitizedAppleID,
+                 password: password,
+-                anisetteData: anisetteData,
++                anisetteData: await freshAnisette(anisetteData),
+                 verificationHandler: verificationHandler
+             )
+             
+@@ -161,7 +195,7 @@ public final class Authentication {
+             return try await authenticate(
+                 appleID: unsanitizedAppleID,
+                 password: password,
+-                anisetteData: anisetteData,
++                anisetteData: await freshAnisette(anisetteData),
+                 verificationHandler: verificationHandler
+             )
+             
+@@ -245,8 +279,10 @@ public final class Authentication {
          var httpHeaders = [
              "Content-Type": "text/x-xml-plist",
              "X-MMe-Client-Info": anisetteData.deviceDescription,
@@ -129,7 +159,27 @@ index cb2cd93..9e5da9b 100755
              "Connection": "close"
          ]
          
-@@ -314,13 +341,9 @@ public final class Authentication {
+@@ -273,6 +309,19 @@ public final class Authentication {
+             throw URLError(.badServerResponse)
+         }
+         
++        // Apple asks for an anisette resync (hsc 434, same as isideload's resync_sim): hand the SIM back to the caller
++        if (status["hsc"] as? Int) == 434 {
++            let sim: String?
++            if let data = status["X-Apple-I-MD-DATA"] as? Data {
++                sim = data.base64EncodedString()
++            } else {
++                sim = status["X-Apple-I-MD-DATA"] as? String
++            }
++            if let sim {
++                throw AppleAPIError.customError(code: 434, message: "anisette-resync:\(sim)")
++            }
++        }
++        
+         let errorCode = status["ec"] as? Int ?? 0
+         guard errorCode == 0 else {
+             switch errorCode {
+@@ -314,13 +363,9 @@ public final class Authentication {
              "X-Apple-Identity-Token": encodedIdentityToken,
              "X-Apple-I-MD-M": anisetteData.machineID,
              "X-Apple-I-MD": anisetteData.oneTimePassword,
@@ -142,4 +192,22 @@ index cb2cd93..9e5da9b 100755
 -            "X-Apple-I-TimeZone": anisetteData.timeZone.abbreviation() ?? "PST",
              "Connection": "close"
          ]
+         
+@@ -403,7 +448,7 @@ public final class Authentication {
+             url: verifyURL,
+             dsid: dsid,
+             idmsToken: idmsToken,
+-            anisetteData: anisetteData
++            anisetteData: await freshAnisette(anisetteData)
+         )
+         verifyRequest.allHTTPHeaderFields?["security-code"] = code
+         
+@@ -480,7 +525,7 @@ public final class Authentication {
+             url: verifyURL,
+             dsid: dsid,
+             idmsToken: idmsToken,
+-            anisetteData: anisetteData
++            anisetteData: await freshAnisette(anisetteData)
+         )
+         verifyRequest.httpMethod = "POST"
          

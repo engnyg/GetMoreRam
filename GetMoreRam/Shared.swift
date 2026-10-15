@@ -99,6 +99,15 @@ class SharedModel: ObservableObject {
         }
         AnisetteDataHelper.shared.url = URL(string: anisetteServerURL)
     }
+    
+    /// Anisette one time passwords expire quickly, so refresh the session's before each request like isideload does.
+    func refreshSessionAnisette() async {
+        guard let session else { return }
+        AnisetteDataHelper.shared.url = URL(string: anisetteServerURL.trimmingCharacters(in: .whitespacesAndNewlines))
+        if let fresh = try? await AnisetteDataHelper.shared.getAnisetteData() {
+            session.anisetteData = fresh
+        }
+    }
 }
 
 class DataManager {
