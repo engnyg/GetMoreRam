@@ -33,8 +33,9 @@ final class AnisetteDataHelper
     // Client info / user agent can be customized from Settings (stored in UserDefaults via @AppStorage).
     static let clientInfoDefaultsKey = "AnisetteClientInfo"
     static let userAgentDefaultsKey = "AnisetteUserAgent"
-    static let defaultClientInfo = "<PC> <Windows;6.2(0,0);9200> <com.apple.AuthKit/1 (com.apple.iTunes/12.12.4.1)>"
-    static let defaultUserAgent = "AuthKit/1 (Macintosh; OS X 27.0) (com.apple.akd/1.0)"
+    // Same values as SideStore's (AnisetteKit) defaults, which currently sign in fine.
+    static let defaultClientInfo = "<MacBookPro18,3> <macOS;26.6;25F84> <com.apple.AuthKit/1 (com.apple.akd/1.0)>"
+    static let defaultUserAgent = "AuthKit/1 (Macintosh; OS X 26.6) (com.apple.akd/1.0)"
     
     // adi.pb is bound to the client info it was provisioned with, remember which one that was.
     static let provisionedClientInfoDefaultsKey = "AnisetteProvisionedClientInfo"
