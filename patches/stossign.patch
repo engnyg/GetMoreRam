@@ -1,0 +1,145 @@
+diff --git a/Sources/StosSign_API/AppleAPI.swift b/Sources/StosSign_API/AppleAPI.swift
+index 358d73c..e254f96 100755
+--- a/Sources/StosSign_API/AppleAPI.swift
++++ b/Sources/StosSign_API/AppleAPI.swift
+@@ -561,13 +561,8 @@ public final class AppleAPI: Sendable {
+             "X-Apple-GS-Token": session.authToken,
+             "X-Apple-I-MD-M": session.anisetteData.machineID,
+             "X-Apple-I-MD": session.anisetteData.oneTimePassword,
+-            "X-Apple-I-MD-LU": session.anisetteData.localUserID,
+-            "X-Apple-I-MD-RINFO": String(session.anisetteData.routingInfo),
+             "X-Mme-Device-Id": session.anisetteData.deviceUniqueIdentifier,
+             "X-MMe-Client-Info": session.anisetteData.deviceDescription,
+-            "X-Apple-I-Client-Time": session.anisetteData.date.iso8601(),
+-            "X-Apple-Locale": session.anisetteData.locale.identifier,
+-            "X-Apple-I-TimeZone": session.anisetteData.timeZone.abbreviation() ?? ""
+         ]
+         
+         httpHeaders.forEach { key, value in
+@@ -616,14 +611,8 @@ public final class AppleAPI: Sendable {
+             "X-Apple-GS-Token": session.authToken,
+             "X-Apple-I-MD-M": session.anisetteData.machineID,
+             "X-Apple-I-MD": session.anisetteData.oneTimePassword,
+-            "X-Apple-I-MD-LU": session.anisetteData.localUserID,
+-            "X-Apple-I-MD-RINFO": "\(session.anisetteData.routingInfo)",
+             "X-Mme-Device-Id": session.anisetteData.deviceUniqueIdentifier,
+             "X-MMe-Client-Info": session.anisetteData.deviceDescription,
+-            "X-Apple-I-Client-Time": session.anisetteData.date.iso8601(),
+-            "X-Apple-Locale": session.anisetteData.locale.identifier,
+-            "X-Apple-I-Locale": session.anisetteData.locale.identifier,
+-            "X-Apple-I-TimeZone": session.anisetteData.timeZone.abbreviation() ?? "GMT"
+         ]
+         
+         for (key, value) in httpHeaders {
+@@ -686,14 +675,8 @@ public final class AppleAPI: Sendable {
+             "X-Apple-GS-Token": session.authToken,
+             "X-Apple-I-MD-M": session.anisetteData.machineID,
+             "X-Apple-I-MD": session.anisetteData.oneTimePassword,
+-            "X-Apple-I-MD-LU": session.anisetteData.localUserID,
+-            "X-Apple-I-MD-RINFO": "\(session.anisetteData.routingInfo)",
+             "X-Mme-Device-Id": session.anisetteData.deviceUniqueIdentifier,
+             "X-MMe-Client-Info": session.anisetteData.deviceDescription,
+-            "X-Apple-I-Client-Time": session.anisetteData.date.iso8601(),
+-            "X-Apple-Locale": session.anisetteData.locale.identifier,
+-            "X-Apple-I-Locale": session.anisetteData.locale.identifier,
+-            "X-Apple-I-TimeZone": session.anisetteData.timeZone.abbreviation() ?? "GMT"
+         ]
+         
+         for (key, value) in httpHeaders {
+diff --git a/Sources/StosSign_Auth/Authentication.swift b/Sources/StosSign_Auth/Authentication.swift
+index cb2cd93..9e5da9b 100755
+--- a/Sources/StosSign_Auth/Authentication.swift
++++ b/Sources/StosSign_Auth/Authentication.swift
+@@ -15,6 +15,13 @@ import FoundationNetworking
+ public typealias AppleAPISession = StosSign_API.AppleAPISession
+ public typealias AppleAPIError = StosSign_API.AppleAPIError
+ 
++// Apple may now answer with `hsc == 409` (and no `au`) when it has already pushed
++// a verification code to the user's trusted devices. Mirrors SideSign's fix so
++// that we prompt for the code once and never loop if Apple keeps answering 409.
++private enum PushedCodeState {
++    @TaskLocal static var handled = false
++}
++
+ public final class Authentication {
+     public init() { }
+     
+@@ -34,16 +41,10 @@ public final class Authentication {
+             "pbe": false,
+             "prkgen": true,
+             "svct": "iCloud",
+-            "loc": Locale.current.identifier,
+-            "X-Apple-Locale": Locale.current.identifier,
++            "loc": "en_US",
+             "X-Apple-I-MD": anisetteData.oneTimePassword,
+             "X-Apple-I-MD-M": anisetteData.machineID,
+             "X-Mme-Device-Id": anisetteData.deviceUniqueIdentifier,
+-            "X-Apple-I-MD-LU": anisetteData.localUserID,
+-            "X-Apple-I-MD-RINFO": anisetteData.routingInfo,
+-            "X-Apple-I-SRL-NO": anisetteData.deviceSerialNumber,
+-            "X-Apple-I-Client-Time": dateFormatter.string(from: anisetteData.date),
+-            "X-Apple-I-TimeZone": TimeZone.current.abbreviation() ?? "PST"
+         ]
+         
+         let context = GSAContext(username: sanitizedAppleID, password: password)
+@@ -125,8 +126,32 @@ public final class Authentication {
+         
+         context.dsid = dsid
+         
+-        let authType = statusDictionary["au"] as? String
++        let authType = (statusDictionary["au"] as? String)
++            ?? ((statusDictionary["hsc"] as? Int) == 409 ? "pushedCode" : nil)
+         switch authType {
++        case "pushedCode":
++            guard let verificationHandler = verificationHandler,
++                  !PushedCodeState.handled
++            else {
++                throw AppleAPIError.requiresTwoFactorAuthentication
++            }
++            
++            try await requestTrustedDeviceTwoFactorCode(
++                dsid: dsid,
++                idmsToken: idmsToken,
++                anisetteData: anisetteData,
++                verificationHandler: verificationHandler
++            )
++            
++            return try await PushedCodeState.$handled.withValue(true) {
++                try await authenticate(
++                    appleID: unsanitizedAppleID,
++                    password: password,
++                    anisetteData: anisetteData,
++                    verificationHandler: verificationHandler
++                )
++            }
++            
+         case "trustedDeviceSecondaryAuth":
+             guard let verificationHandler = verificationHandler else {
+                 throw AppleAPIError.requiresTwoFactorAuthentication
+@@ -245,8 +270,10 @@ public final class Authentication {
+         var httpHeaders = [
+             "Content-Type": "text/x-xml-plist",
+             "X-MMe-Client-Info": anisetteData.deviceDescription,
+-            "Accept": "*/*",
+-            "User-Agent": "AuthKit/1 (Macintosh; OS X 26.6) (com.apple.dt.Xcode/26.0)",
++            "Accept": "text/x-xml-plist",
++            "User-Agent": "akd/1.0 CFNetwork/808.1.4",
++            "X-Xcode-Version": "27.0 (27A5218g)",
++            "X-Apple-App-Info": "com.apple.gs.xcode.auth",
+             "Connection": "close"
+         ]
+         
+@@ -314,13 +341,9 @@ public final class Authentication {
+             "X-Apple-Identity-Token": encodedIdentityToken,
+             "X-Apple-I-MD-M": anisetteData.machineID,
+             "X-Apple-I-MD": anisetteData.oneTimePassword,
+-            "X-Apple-I-MD-LU": anisetteData.localUserID,
+             "X-Apple-I-MD-RINFO": "\(anisetteData.routingInfo)",
+             "X-Mme-Device-Id": anisetteData.deviceUniqueIdentifier,
+             "X-MMe-Client-Info": anisetteData.deviceDescription,
+-            "X-Apple-I-Client-Time": dateFormatter.string(from: anisetteData.date),
+-            "X-Apple-Locale": anisetteData.locale.identifier,
+-            "X-Apple-I-TimeZone": anisetteData.timeZone.abbreviation() ?? "PST",
+             "Connection": "close"
+         ]
+         

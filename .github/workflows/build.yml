@@ -59,9 +59,11 @@ jobs:
           file_to_build: ${{ steps.file_to_build.outputs.file_to_build }}
         run: |
           xcodebuild -resolvePackageDependencies -scheme "$scheme" -"$filetype_parameter" "$file_to_build" -clonedSourcePackagesDirPath SourcePackages
-          # SideStore/SideSign "fix: 2FA failing": Apple now answers hsc=409 for pushed 2FA codes, which StosSign doesn't handle yet.
+          # Patches StosSign like SideStore/SideSign and iloader (isideload) do:
+          # - handle hsc=409 for pushed 2FA codes ("fix: 2FA failing")
+          # - only send the anisette headers they send (no client time / time zone / locale / MD-LU), GSA UA from the anisette server
           # Fails the build if the patch no longer applies (e.g. StosSign already fixed it upstream) so it gets noticed.
-          patch -p1 -d SourcePackages/checkouts/StosSign < patches/stossign-2fa-409.patch
+          patch -p1 -d SourcePackages/checkouts/StosSign < patches/stossign.patch
       - name: Build
         env:
           scheme: ${{ steps.scheme.outputs.scheme }}
